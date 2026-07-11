@@ -1,0 +1,11 @@
+REGLAS DE REALTIME DATABASE — DINEX
+
+Pega exactamente este bloque en Firebase Console:
+Realtime Database → Reglas → Publicar
+
+{
+  "rules": {
+    ".read": "auth != null && (auth.uid === 'BS3RL9W8V1fsqjWHaj4PeDOowTI3' || auth.uid === 'MU43I1pveyg5D6uk1ZX9lEr6qJB2')",
+    ".write": "auth != null && (auth.uid === 'BS3RL9W8V1fsqjWHaj4PeDOowTI3' || auth.uid === 'MU43I1pveyg5D6uk1ZX9lEr6qJB2')"
+  }
+}
