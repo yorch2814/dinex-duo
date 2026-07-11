@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '3.2.0';
+  const APP_VERSION = '3.2.1';
   const DAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
   const VIEW_META = {
     dashboard: ['Resumen financiero', 'Todo lo importante de Kianna y Jorge en un solo lugar.'],
