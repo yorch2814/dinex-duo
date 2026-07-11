@@ -12,7 +12,36 @@
   <title>DINEX Dúo</title>
 </head>
 <body>
-  <div id="app" class="app-shell">
+  <section id="authScreen" class="auth-screen" aria-labelledby="authTitle">
+    <div class="auth-orb auth-orb-one"></div>
+    <div class="auth-orb auth-orb-two"></div>
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="brand-mark">D</div>
+        <div><strong>DINEX</strong><span>Finanzas en pareja</span></div>
+      </div>
+      <div class="auth-copy">
+        <span class="eyebrow">CUENTA COMPARTIDA</span>
+        <h1 id="authTitle">Controlen su dinero juntos</h1>
+        <p>Inicia sesión como Jorge o Kianna. Los movimientos se sincronizarán de forma segura entre ambos dispositivos.</p>
+      </div>
+      <div class="profile-shortcuts" aria-label="Seleccionar cuenta">
+        <button type="button" class="profile-shortcut" data-login-email="Jorge281401@gmail.com"><span>JG</span><strong>Jorge</strong><small>Pago diario</small></button>
+        <button type="button" class="profile-shortcut" data-login-email="ktejadaquintero@gmail.com"><span>KT</span><strong>Kianna</strong><small>Pago semanal</small></button>
+      </div>
+      <form id="loginForm" class="auth-form">
+        <label>Correo electrónico<input id="loginEmail" name="email" type="email" autocomplete="username" placeholder="correo@ejemplo.com" required /></label>
+        <label>Contraseña<div class="password-field"><input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="Tu contraseña" required /><button id="togglePasswordBtn" type="button" aria-label="Mostrar u ocultar contraseña">◉</button></div></label>
+        <div id="loginError" class="auth-error hidden" role="alert"></div>
+        <button id="loginBtn" class="btn primary full auth-submit" type="submit"><span class="login-label">Iniciar sesión</span><span class="login-spinner hidden"></span></button>
+        <button id="resetPasswordBtn" class="text-btn auth-reset" type="button">Olvidé mi contraseña</button>
+      </form>
+      <div class="auth-security"><span>✓</span><p>Acceso limitado a Jorge y Kianna mediante Firebase Authentication.</p></div>
+      <p id="fileProtocolWarning" class="protocol-warning hidden">Para iniciar sesión, abre la versión publicada en GitHub Pages. Firebase no funciona correctamente desde un archivo local.</p>
+    </div>
+  </section>
+
+  <div id="app" class="app-shell app-hidden" aria-hidden="true">
     <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true">D</div>
@@ -33,14 +62,14 @@
       </nav>
 
       <div class="sidebar-footer">
-        <div class="sync-card">
-          <div class="status-dot local"></div>
+        <div class="sync-card" id="syncCard">
+          <div class="status-dot local" id="cloudStatusDot"></div>
           <div>
-            <strong>Modo local</strong>
-            <span>Firebase se conectará después</span>
+            <strong id="cloudStatusTitle">Conectando</strong>
+            <span id="cloudStatusText">Esperando a Firebase</span>
           </div>
         </div>
-        <small>DINEX v3.1 · Premium Local</small>
+        <small>DINEX v3.2 · Firebase Sync</small>
       </div>
     </aside>
 
@@ -52,9 +81,10 @@
           <p id="pageSubtitle">Todo lo importante de Kianna y Jorge en un solo lugar.</p>
         </div>
         <div class="top-actions">
-          <span class="connection-pill" id="connectionPill"><span class="status-dot online"></span> En línea</span>
+          <span class="connection-pill" id="connectionPill"><span class="status-dot local"></span> Conectando</span>
           <button class="icon-btn" id="themeBtn" aria-label="Cambiar tema">◐</button>
-          <button class="avatar-btn" data-view="settings" aria-label="Abrir configuración">KJ</button>
+          <button class="user-chip" data-view="settings" aria-label="Abrir configuración"><span class="user-avatar" id="currentUserInitials">KJ</span><span class="user-copy"><strong id="currentUserName">Usuario</strong><small id="currentUserRole">Firebase</small></span></button>
+          <button class="icon-btn logout-top" id="logoutBtn" aria-label="Cerrar sesión" title="Cerrar sesión">↪</button>
         </div>
       </header>
 
@@ -549,11 +579,11 @@
 
           <article class="panel firebase-ready-panel">
             <div>
-              <span class="eyebrow">SIGUIENTE FASE</span>
-              <h3>Preparada para Firebase + GitHub Pages</h3>
-              <p>Esta versión usa almacenamiento local mediante una capa separada. En la fase de sincronización reemplazaremos esa capa por Firebase sin rehacer toda la interfaz.</p>
+              <span class="eyebrow">CUENTA Y SINCRONIZACIÓN</span>
+              <h3 id="settingsAccountName">Sesión Firebase activa</h3>
+              <p id="settingsAccountDetail">Los datos se guardan en Realtime Database y se actualizan en los dispositivos autorizados.</p>
             </div>
-            <span class="ready-badge">Estructura lista</span>
+            <div class="cloud-panel-actions"><span class="ready-badge" id="settingsCloudBadge">Conectando</span><button class="btn danger-outline" id="settingsLogoutBtn">Cerrar sesión</button></div>
           </article>
         </section>
       </main>
@@ -577,6 +607,11 @@
 
   <div class="toast-region" id="toastRegion" aria-live="polite"></div>
 
+  <script src="https://www.gstatic.com/firebasejs/12.15.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.15.0/firebase-database-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="firebase-service.js"></script>
   <script src="storage.js"></script>
   <script src="app.js"></script>
 </body>

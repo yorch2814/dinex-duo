@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '3.1.0';
+  const APP_VERSION = '3.2.0';
   const DAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
   const VIEW_META = {
     dashboard: ['Resumen financiero', 'Todo lo importante de Kianna y Jorge en un solo lugar.'],
@@ -64,6 +64,10 @@
   let state = defaultState();
   let currentView = 'dashboard';
   let modalResolver = null;
+  let currentActor = { uid: '', key: '', name: 'Sistema', email: '', initials: 'KJ' };
+  let appInitialized = false;
+  let stopRemoteSubscription = null;
+  let lastCloudStatus = null;
 
   function normalizeState(raw) {
     const base = defaultState();
@@ -98,7 +102,7 @@
   }
 
   function audit(action, detail) {
-    state.audit.unshift({ id: uid(), action, detail, at: new Date().toISOString() });
+    state.audit.unshift({ id: uid(), action, detail, at: new Date().toISOString(), authorUid: currentActor.uid, authorName: currentActor.name });
     state.audit = state.audit.slice(0, 500);
   }
 
@@ -253,7 +257,7 @@
   }
 
   function addTransaction(transaction, auditText) {
-    state.transactions.unshift({ id: uid(), createdAt: new Date().toISOString(), ...transaction });
+    state.transactions.unshift({ id: uid(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), authorUid: currentActor.uid, authorName: currentActor.name, ...transaction });
     audit('transaction_created', auditText || `${transactionLabel(transaction)} de ${formatMoney(transaction.amount)}`);
   }
 
@@ -444,7 +448,7 @@
     const icon = tx.type === 'income' ? '＋' : tx.type === 'expense' ? '−' : tx.type.startsWith('emergency_') ? '◆' : '↔';
     return `<div class="activity-item">
       <div class="activity-icon ${tx.type}">${icon}</div>
-      <div class="activity-main"><strong>${escapeHtml(transactionDescription(tx))}</strong><span>${profile(tx.person).name} · ${formatDate(tx.date)} · ${transactionLabel(tx)}</span></div>
+      <div class="activity-main"><strong>${escapeHtml(transactionDescription(tx))}</strong><span>${profile(tx.person).name} · ${formatDate(tx.date)} · ${transactionLabel(tx)} · Por ${escapeHtml(tx.authorName || 'Sistema')}</span></div>
       <span class="activity-amount ${positive ? 'positive' : negative ? 'negative' : ''}">${sign}${formatMoney(tx.amount)}</span>
     </div>`;
   }
@@ -481,7 +485,7 @@
     const from = $('#movementDateFrom').value;
     const to = $('#movementDateTo').value;
     return state.transactions.slice().filter((tx) => {
-      const haystack = `${transactionDescription(tx)} ${categoryText(tx)} ${tx.method || ''} ${tx.merchant || ''} ${tx.note || ''}`.toLowerCase();
+      const haystack = `${transactionDescription(tx)} ${categoryText(tx)} ${tx.method || ''} ${tx.merchant || ''} ${tx.note || ''} ${tx.authorName || ''}`.toLowerCase();
       return (!search || haystack.includes(search)) && (person === 'all' || tx.person === person) && (type === 'all' || tx.type === type) && (!from || tx.date >= from) && (!to || tx.date <= to);
     }).sort((a, b) => `${b.date}${b.createdAt}`.localeCompare(`${a.date}${a.createdAt}`));
   }
@@ -494,7 +498,7 @@
       return `<tr>
         <td>${formatDate(tx.date)}</td>
         <td><span class="table-person"><i style="background:${tx.person === 'kianna' ? '#7c3aed' : '#0b5cff'}"></i>${profile(tx.person).name}</span></td>
-        <td><strong>${escapeHtml(transactionDescription(tx))}</strong><div class="movement-subline"><span class="type-pill ${tx.type}">${transactionLabel(tx)}</span>${tx.merchant || tx.note ? `<span>${escapeHtml(tx.merchant || tx.note)}</span>` : ''}</div></td>
+        <td><strong>${escapeHtml(transactionDescription(tx))}</strong><div class="movement-subline"><span class="type-pill ${tx.type}">${transactionLabel(tx)}</span><span>Por ${escapeHtml(tx.authorName || 'Sistema')}</span>${tx.merchant || tx.note ? `<span>${escapeHtml(tx.merchant || tx.note)}</span>` : ''}</div></td>
         <td>${escapeHtml(categoryText(tx))}</td>
         <td>${escapeHtml(tx.method || '—')}</td>
         <td><strong class="activity-amount ${amountClass}">${sign}${formatMoney(tx.amount)}</strong></td>
@@ -505,7 +509,7 @@
       const negative = ['expense', 'goal_contribution', 'emergency_contribution'].includes(tx.type);
       const positive = ['income', 'goal_withdrawal', 'emergency_withdrawal'].includes(tx.type);
       return `<div class="mobile-movement-card">
-        <div class="mobile-movement-top"><div><h4>${escapeHtml(transactionDescription(tx))}</h4><p>${profile(tx.person).name} · ${formatDate(tx.date)} · ${escapeHtml(categoryText(tx))}</p></div><span class="type-pill ${tx.type}">${transactionLabel(tx)}</span></div>
+        <div class="mobile-movement-top"><div><h4>${escapeHtml(transactionDescription(tx))}</h4><p>${profile(tx.person).name} · ${formatDate(tx.date)} · ${escapeHtml(categoryText(tx))} · Por ${escapeHtml(tx.authorName || 'Sistema')}</p></div><span class="type-pill ${tx.type}">${transactionLabel(tx)}</span></div>
         <div class="mobile-movement-bottom"><strong class="activity-amount ${negative ? 'negative' : positive ? 'positive' : ''}">${negative ? '-' : positive ? '+' : ''}${formatMoney(tx.amount)}</strong><div class="table-actions"><button class="mini-btn" data-action="edit-tx" data-id="${tx.id}">✎</button><button class="mini-btn" data-action="delete-tx" data-id="${tx.id}">⌫</button></div></div>
       </div>`;
     }).join('');
@@ -726,7 +730,7 @@
       const data = new FormData(event.currentTarget);
       const newAmount = round2(data.get('amount'));
       if (!(newAmount > 0)) return;
-      const updated = { ...tx, amount: newAmount, date: data.get('date'), description: data.get('description') };
+      const updated = { ...tx, amount: newAmount, date: data.get('date'), description: data.get('description'), updatedAt: new Date().toISOString(), lastEditedByUid: currentActor.uid, lastEditedByName: currentActor.name };
       if (tx.type === 'income') updated.allocations = allocateAmount(tx.person, newAmount);
       if (tx.type === 'expense') {
         updated.categoryId = data.get('categoryId');
@@ -986,7 +990,7 @@
       const data = new FormData(event.currentTarget);
       const record = {
         id: goal?.id || uid(), name: data.get('name'), person: data.get('person'), target: round2(data.get('target')),
-        deadline: data.get('deadline'), priority: Number(data.get('priority')), icon: goal?.icon || '◎', color: goal?.color || '#0b5cff', createdAt: goal?.createdAt || new Date().toISOString()
+        deadline: data.get('deadline'), priority: Number(data.get('priority')), icon: goal?.icon || '◎', color: goal?.color || '#0b5cff', createdAt: goal?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString(), createdByUid: goal?.createdByUid || currentActor.uid, createdByName: goal?.createdByName || currentActor.name
       };
       if (isEdit) state.goals = state.goals.map((item) => item.id === goal.id ? record : item);
       else state.goals.push(record);
@@ -1059,7 +1063,7 @@
     const balances = getBalances(person);
     $('#weeklyCurrentSummary').innerHTML = `<div class="week-summary"><div class="week-period">${formatDate(cycle.start)} — ${formatDate(cycle.end)}</div><div class="week-stat-grid"><div class="week-stat"><span>Ingresos</span><strong>${formatMoney(summary.incomes)}</strong></div><div class="week-stat"><span>Gastos</span><strong>${formatMoney(summary.expenses)}</strong></div><div class="week-stat"><span>Ahorro generado</span><strong>${formatMoney(summary.savings)}</strong></div><div class="week-stat"><span>Resultado del periodo</span><strong style="color:${summary.net < 0 ? 'var(--danger)' : 'var(--success)'}">${formatMoney(summary.net)}</strong></div></div>${categories(person).map((cat) => `<div class="category-row"><div class="category-name"><i class="category-dot" style="--cat:${cat.color}"></i><strong>${escapeHtml(cat.name)}</strong></div><span class="category-value ${balances[cat.id] < 0 ? 'negative' : ''}">${formatMoney(balances[cat.id])}</span></div>`).join('')}</div>`;
     renderManualLeftovers();
-    $('#closuresList').innerHTML = state.closures.length ? state.closures.slice().sort((a, b) => b.closedAt.localeCompare(a.closedAt)).map((closure) => `<div class="closure-item"><div class="closure-main"><strong>${profile(closure.person).name} · ${formatDate(closure.start)} — ${formatDate(closure.end)}</strong><span>${closure.actionLabel}${closure.note ? ` · ${escapeHtml(closure.note)}` : ''}</span></div><div class="closure-stats"><div class="closure-stat"><span>Ingresos</span><strong>${formatMoney(closure.summary.incomes)}</strong></div><div class="closure-stat"><span>Gastos</span><strong>${formatMoney(closure.summary.expenses)}</strong></div><div class="closure-stat"><span>Ahorro</span><strong>${formatMoney(closure.summary.savings)}</strong></div></div></div>`).join('') : `<div class="empty-state"><div class="empty-icon">▣</div><h3>No hay cierres guardados</h3><p>El primer cierre aparecerá aquí con su resumen completo.</p></div>`;
+    $('#closuresList').innerHTML = state.closures.length ? state.closures.slice().sort((a, b) => b.closedAt.localeCompare(a.closedAt)).map((closure) => `<div class="closure-item"><div class="closure-main"><strong>${profile(closure.person).name} · ${formatDate(closure.start)} — ${formatDate(closure.end)}</strong><span>${closure.actionLabel} · Por ${escapeHtml(closure.authorName || 'Sistema')}${closure.note ? ` · ${escapeHtml(closure.note)}` : ''}</span></div><div class="closure-stats"><div class="closure-stat"><span>Ingresos</span><strong>${formatMoney(closure.summary.incomes)}</strong></div><div class="closure-stat"><span>Gastos</span><strong>${formatMoney(closure.summary.expenses)}</strong></div><div class="closure-stat"><span>Ahorro</span><strong>${formatMoney(closure.summary.savings)}</strong></div></div></div>`).join('') : `<div class="empty-state"><div class="empty-icon">▣</div><h3>No hay cierres guardados</h3><p>El primer cierre aparecerá aquí con su resumen completo.</p></div>`;
   }
 
   function renderManualLeftovers() {
@@ -1094,7 +1098,7 @@
         if (amount > 0) addTransaction({ type: 'transfer', person, amount: Math.min(amount, Math.max(0, balances[cat.id])), fromCategoryId: cat.id, toCategoryId: savings.id, date: data.get('date'), description: `Sobrante manual del cierre semanal` }, `Sobrante manual de ${cat.name} enviado a ahorro`);
       });
     }
-    state.closures.push({ id: uid(), person, start: cycle.start, end: cycle.end, closedAt: new Date().toISOString(), action, actionLabel: actionLabels[action], note: data.get('note'), summary });
+    state.closures.push({ id: uid(), person, start: cycle.start, end: cycle.end, closedAt: new Date().toISOString(), action, actionLabel: actionLabels[action], note: data.get('note'), summary, authorUid: currentActor.uid, authorName: currentActor.name });
     audit('week_closed', `${profile(person).name} cerró la semana ${cycle.start} a ${cycle.end}`);
     await persist(); event.currentTarget.reset(); $('#weeklyCloseDate').value = todayString(); renderAll(); toast('Semana cerrada', 'El resumen quedó guardado en el historial.');
   }
@@ -1178,6 +1182,8 @@
   }
 
   function renderSettings() {
+    configureAccountUi();
+    updateConnection(lastCloudStatus || undefined);
     renderProfileSettings('kianna', $('#kiannaSettingsForm'));
     renderProfileSettings('jorge', $('#jorgeSettingsForm'));
     $('#themeSelect').value = state.settings.theme;
@@ -1249,8 +1255,8 @@
   }
 
   function exportCsv() {
-    const headers = ['Fecha', 'Persona', 'Tipo', 'Descripción', 'Categoría', 'Método', 'Monto'];
-    const rows = state.transactions.slice().sort((a, b) => a.date.localeCompare(b.date)).map((tx) => [tx.date, profile(tx.person).name, transactionLabel(tx), transactionDescription(tx), categoryText(tx), tx.method || '', tx.amount]);
+    const headers = ['Fecha', 'Persona', 'Autor', 'Tipo', 'Descripción', 'Categoría', 'Método', 'Monto'];
+    const rows = state.transactions.slice().sort((a, b) => a.date.localeCompare(b.date)).map((tx) => [tx.date, profile(tx.person).name, tx.authorName || 'Sistema', transactionLabel(tx), transactionDescription(tx), categoryText(tx), tx.method || '', tx.amount]);
     const csv = [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
     exportFile(`DINEX_movimientos_${todayString()}.csv`, `\ufeff${csv}`, 'text/csv;charset=utf-8');
     toast('CSV generado', 'El historial está listo para abrirse en Excel.');
@@ -1310,7 +1316,7 @@
       { type: 'expense', person: 'jorge', categoryId: 'weekly_expenses', amount: 14.75, date: dates[4], description: 'Almuerzo', method: 'Yappy' }
     ];
     demo.forEach((tx) => addTransaction(tx, 'Dato de demostración'));
-    if (!state.goals.length) state.goals.push({ id: uid(), name: 'Fondo para computadora', person: 'shared', target: 1200, deadline: '', priority: 2, icon: '▣', color: '#0b5cff', createdAt: new Date().toISOString() });
+    if (!state.goals.length) state.goals.push({ id: uid(), name: 'Fondo para computadora', person: 'shared', target: 1200, deadline: '', priority: 2, icon: '▣', color: '#0b5cff', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdByUid: currentActor.uid, createdByName: currentActor.name });
     if (!profile('kianna').emergencyFund) profile('kianna').emergencyFund = 150;
     if (!profile('jorge').emergencyFund) profile('jorge').emergencyFund = 100;
     if (!state.transactions.some((tx) => tx.type === 'emergency_contribution')) {
@@ -1389,30 +1395,107 @@
     $('#importBackupInput').addEventListener('change', (event) => { const file = event.target.files[0]; if (file) importBackup(file); event.target.value = ''; });
     $('#copySummaryBtn').addEventListener('click', copySummary);
     $('#demoDataBtn').addEventListener('click', loadDemoData);
+    $('#logoutBtn')?.addEventListener('click', signOutUser);
+    $('#settingsLogoutBtn')?.addEventListener('click', signOutUser);
+
     $('#resetDataBtn').addEventListener('click', async () => {
       const ok = await confirmDialog({ title: 'Borrar todos los datos', message: 'Se eliminarán movimientos, metas, cierres y configuraciones locales. Descarga un respaldo antes si deseas conservarlos.', confirmText: 'Borrar todo', danger: true });
       if (!ok) return;
       await window.DinexStorage.clear(); state = defaultState(); await persist(); applyTheme(); renderAll(); toast('Datos eliminados', 'DINEX volvió a su estado inicial.', 'danger');
     });
 
-    window.addEventListener('online', updateConnection);
-    window.addEventListener('offline', updateConnection);
     let resizeTimer;
     window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (currentView === 'dashboard') renderDashboard(); if (currentView === 'savings') renderSavings(); if (currentView === 'reports') renderReports(); }, 180); });
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (state.settings.theme === 'system') { applyTheme(); renderAll(); } });
   }
 
-  function updateConnection() {
-    const online = navigator.onLine;
-    $('#connectionPill').innerHTML = `<span class="status-dot ${online ? 'online' : 'local'}"></span> ${online ? 'En línea' : 'Sin conexión'}`;
-    if (!online) toast('Modo sin conexión', 'Los cambios seguirán guardándose en este dispositivo.', 'danger');
+  function updateConnection(cloudStatus = window.DinexStorage.getStatus?.() || {}) {
+    const connected = cloudStatus.connected === true;
+    const syncing = cloudStatus.syncing === true;
+    const error = cloudStatus.error;
+    let title = 'Sin conexión';
+    let detail = 'Cambios guardados en este dispositivo';
+    let css = 'error';
+    let pill = 'Sin conexión';
+
+    if (error) {
+      title = 'Error de sincronización'; detail = error; css = 'error'; pill = 'Error';
+    } else if (syncing) {
+      title = connected ? 'Sincronizando' : 'Pendiente de conexión';
+      detail = connected ? 'Guardando cambios en Firebase' : 'Se enviará cuando vuelva internet';
+      css = 'syncing'; pill = 'Sincronizando';
+    } else if (connected) {
+      title = 'Firebase conectado';
+      detail = cloudStatus.lastSyncedAt ? `Última sincronización: ${formatDate(cloudStatus.lastSyncedAt, true)}` : 'Datos compartidos en tiempo real';
+      css = 'online'; pill = 'Sincronizado';
+    }
+
+    lastCloudStatus = cloudStatus;
+    const dot = $('#cloudStatusDot');
+    if (dot) dot.className = `status-dot ${css}`;
+    if ($('#cloudStatusTitle')) $('#cloudStatusTitle').textContent = title;
+    if ($('#cloudStatusText')) $('#cloudStatusText').textContent = detail;
+    const pillElement = $('#connectionPill');
+    if (pillElement) {
+      pillElement.className = `connection-pill ${css}`;
+      pillElement.innerHTML = `<span class="status-dot ${css}"></span> ${escapeHtml(pill)}`;
+    }
+    if ($('#settingsCloudBadge')) $('#settingsCloudBadge').textContent = pill;
   }
 
   function setDefaultDates() {
     ['incomeDate', 'expenseDate', 'transferDate', 'weeklyCloseDate'].forEach((id) => { $(`#${id}`).value = todayString(); });
   }
 
-  async function init() {
+  function setLoginBusy(busy) {
+    const button = $('#loginBtn');
+    if (!button) return;
+    button.disabled = busy;
+    $('.login-label', button)?.classList.toggle('hidden', busy);
+    $('.login-spinner', button)?.classList.toggle('hidden', !busy);
+  }
+
+  function showLoginError(message = '') {
+    const box = $('#loginError');
+    if (!box) return;
+    box.textContent = message;
+    box.classList.toggle('hidden', !message);
+  }
+
+  function showAuthScreen() {
+    $('#authScreen')?.classList.remove('hidden');
+    $('#app')?.classList.add('app-hidden');
+    $('#app')?.setAttribute('aria-hidden', 'true');
+  }
+
+  function showApplication() {
+    $('#authScreen')?.classList.add('hidden');
+    $('#app')?.classList.remove('app-hidden');
+    $('#app')?.setAttribute('aria-hidden', 'false');
+  }
+
+  async function signOutUser() {
+    const ok = await confirmDialog({ title: 'Cerrar sesión', message: 'DINEX cerrará esta sesión en este dispositivo. Los datos seguirán guardados en Firebase.', confirmText: 'Cerrar sesión', warning: true });
+    if (!ok) return;
+    await window.DinexFirebase.signOut();
+    window.location.reload();
+  }
+
+  function configureAccountUi() {
+    if ($('#currentUserInitials')) $('#currentUserInitials').textContent = currentActor.initials || currentActor.name.slice(0, 2).toUpperCase();
+    if ($('#currentUserName')) $('#currentUserName').textContent = currentActor.name;
+    if ($('#currentUserRole')) $('#currentUserRole').textContent = currentActor.email;
+    if ($('#settingsAccountName')) $('#settingsAccountName').textContent = `${currentActor.name} · sesión Firebase activa`;
+    if ($('#settingsAccountDetail')) $('#settingsAccountDetail').textContent = `${currentActor.email}. Los movimientos se comparten con la otra cuenta autorizada.`;
+  }
+
+  async function initAuthenticated(session) {
+    if (appInitialized) return;
+    appInitialized = true;
+    currentActor = session.profile;
+    configureAccountUi();
+    showApplication();
+
     const loaded = await window.DinexStorage.load();
     state = normalizeState(loaded);
     applyTheme();
@@ -1420,12 +1503,63 @@
     attachEvents();
     updateAllCategorySelects();
     updateIncomePreview();
+    window.DinexStorage.watchConnection?.();
+    window.DinexStorage.subscribeStatus?.(updateConnection);
     updateConnection();
     renderAll();
+
+    if (!loaded) await persist();
+
+    stopRemoteSubscription = window.DinexStorage.subscribe?.((remoteState) => {
+      const normalized = normalizeState(remoteState);
+      if (normalized.updatedAt === state.updatedAt && normalized.transactions.length === state.transactions.length && normalized.audit.length === state.audit.length) return;
+      state = normalized;
+      applyTheme();
+      renderAll();
+    });
+
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
       navigator.serviceWorker.register('./sw.js').catch((error) => console.warn('Service worker no disponible:', error));
     }
   }
 
-  init();
+  function attachLoginEvents() {
+    if (location.protocol === 'file:') $('#fileProtocolWarning')?.classList.remove('hidden');
+    $$('.profile-shortcut').forEach((button) => button.addEventListener('click', () => {
+      $$('.profile-shortcut').forEach((item) => item.classList.toggle('active', item === button));
+      $('#loginEmail').value = button.dataset.loginEmail;
+      $('#loginPassword').focus();
+      showLoginError('');
+    }));
+    $('#togglePasswordBtn')?.addEventListener('click', () => {
+      const input = $('#loginPassword');
+      input.type = input.type === 'password' ? 'text' : 'password';
+    });
+    $('#loginForm')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      showLoginError('');
+      setLoginBusy(true);
+      try { await window.DinexFirebase.signIn($('#loginEmail').value, $('#loginPassword').value); }
+      catch (error) { showLoginError(error.message || 'No se pudo iniciar sesión.'); }
+      finally { setLoginBusy(false); }
+    });
+    $('#resetPasswordBtn')?.addEventListener('click', async () => {
+      showLoginError('');
+      try {
+        await window.DinexFirebase.sendPasswordReset($('#loginEmail').value);
+        showLoginError('Se envió un correo para restablecer la contraseña. Revisa también la carpeta de spam.');
+      } catch (error) { showLoginError(error.message); }
+    });
+  }
+
+  function bootstrap() {
+    attachLoginEvents();
+    showAuthScreen();
+    window.DinexFirebase.onAuthChange(async (session) => {
+      if (!session) { if (!appInitialized) showAuthScreen(); return; }
+      await initAuthenticated(session);
+    });
+  }
+
+  bootstrap();
 })();
